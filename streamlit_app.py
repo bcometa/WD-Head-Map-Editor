@@ -337,9 +337,24 @@ Offset 0x{offset:04X}-0x{offset+1:04X}:
                 else:
                     mod_data[offset:offset+2] = struct.pack('<H', new_map)
                 
-                # Determine output filename
+                # Determine output filename with descriptive naming
                 original_stem = Path(st.session_state.file_name).stem
-                output_filename = f"{original_stem}_modified.0a"
+                
+                # Build descriptive filename based on changes
+                disabled_heads = [h for h in selected_heads if h in active_heads]
+                enabled_heads = [h for h in selected_heads if h not in active_heads]
+                
+                # Create filename suffix
+                suffix_parts = []
+                if disabled_heads:
+                    heads_str = "_".join([f"H{h}" for h in disabled_heads])
+                    suffix_parts.append(f"{heads_str}_off")
+                if enabled_heads:
+                    heads_str = "_".join([f"H{h}" for h in enabled_heads])
+                    suffix_parts.append(f"{heads_str}_on")
+                
+                filename_suffix = "_".join(suffix_parts)
+                output_filename = f"{original_stem}_{filename_suffix}.bin"
                 
                 col1, col2 = st.columns(2)
                 
@@ -358,6 +373,7 @@ Offset 0x{offset:04X}-0x{offset+1:04X}:
 {'=' * 50}
 
 Original File: {st.session_state.file_name}
+Output File: {output_filename}
 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 Drive Type: {drive_type}
 
@@ -374,15 +390,18 @@ Changes Summary:
                         else:
                             report += f"Head {h}: Inactive → ENABLED\n"
                     
+                    report_filename = f"{original_stem}_{filename_suffix}_report.txt"
+                    
                     st.download_button(
                         label="📄 Download Report",
                         data=report,
-                        file_name=f"{original_stem}_report.txt",
+                        file_name=report_filename,
                         mime="text/plain",
                         use_container_width=True
                     )
                 
                 st.success(f"✅ Ready to download: **{output_filename}**")
+
         
         else:
             st.info("👆 Select heads to toggle above to preview changes")
