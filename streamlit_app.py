@@ -13,25 +13,25 @@ import io
 # DRIVE CONFIGURATIONS
 # --------------------------------------------------------------------
 DRIVE_CONFIGS = {
-    'SMR 10-Head (WD50NMZM, etc.)': {
+    'SMR 10‑Head (WD50NMZM, etc.)': {
         'offset': 0x03E,
         'size': 2,
         'endian': 'little',
         'max_heads': 10
     },
-    'Traditional 4-Head (WD10JMVW, etc.)': {
+    'Traditional 4‑Head (WD10JMVW, etc.)': {
         'offset': 0x23,
         'size': 1,
         'endian': 'little',
         'max_heads': 4
     },
-    'SMR 8-Head (WD40NMZW, etc.)': {
+    'SMR 8‑Head (WD40NMZW, etc.)': {
         'offset': 0x03E,
         'size': 2,
         'endian': 'little',
         'max_heads': 8
     },
-    'Traditional 6-Head (WD30EZRX, etc.)': {
+    'Traditional 6‑Head (WD30EZRX, etc.)': {
         'offset': 0x23,
         'size': 1,
         'endian': 'little',
@@ -226,17 +226,20 @@ Field Size: {config['size']} byte(s)
         st.info("💡 Check heads to **toggle** their state. Active heads will be disabled, inactive heads will be enabled.")
         
         # Create checkboxes in columns
-        cols = st.columns(5)
+        cols_layout = st.columns(5)
         selected_heads = []
         
         for i in range(total_heads):
-            with cols[i % 5]:
+            with cols_layout[i % 5]:
                 is_active = i in active_heads
                 status = "✅ Active" if is_active else "❌ Inactive"
                 
+                # Use a unique key for each checkbox based on head index
+                checkbox_key = f"head_{i}" 
+                
                 if st.checkbox(
                     f"Head {i}",
-                    key=f"head_{i}",
+                    key=checkbox_key,
                     help=f"Current status: {status}"
                 ):
                     selected_heads.append(i)
@@ -249,6 +252,9 @@ Field Size: {config['size']} byte(s)
         
         # Clear All button
         if st.button("🔄 Clear All Selections"):
+            # Reset all checkboxes and rerun
+            for i in range(total_heads):
+                st.session_state[f"head_{i}"] = False
             st.rerun()
         
         # --------------------------------------------------------------------
@@ -321,9 +327,9 @@ Offset 0x{offset:04X}-0x{offset+1:04X}:
                 # 6. SAVE
                 # --------------------------------------------------------------------
                 st.markdown("---")
-                st.markdown("### 6️⃣ Save Modified File")
+                st.markdown("### 6️⃣ Download Files")
                 
-                # Create modified file
+                # Create modified file data
                 mod_data = bytearray(st.session_state.file_data)
                 offset, size = config['offset'], config['size']
                 if size == 1:
@@ -379,7 +385,7 @@ Changes Summary:
                 st.success(f"✅ Ready to download: **{output_filename}**")
         
         else:
-            st.info("👆 Select heads above to preview changes")
+            st.info("👆 Select heads to toggle above to preview changes")
     
     except Exception as e:
         st.error(f"❌ Error parsing head map: {str(e)}")
@@ -409,22 +415,14 @@ with st.sidebar:
     2. **Select** your drive type (auto-detected)
     3. **Check** heads you want to toggle
     4. **Preview** changes
-    5. **Download** modified file
+    5. **Download** modified file & report
     
     ### Tips
     
     - At least one head must remain active
-    - Active heads (green) will be disabled if checked
-    - Inactive heads (red) will be enabled if checked
+    - Active heads (green) will be DISABLED if checked
+    - Inactive heads (red) will be ENABLED if checked
     - Original file is not modified
     - Download creates a new `_modified.0a` file
-    
-    ### Keyboard Shortcuts
-    
-    None needed - just click!
     """)
-    
-    st.markdown("---")
-    st.markdown("### 🔗 Resources")
-    st.markdown("[Dolphin Data Lab](http://www.dolphindatalab.com)")
-    st.markdown("[GitHub Repository](#)")
+    # Removed Resources section as requested
