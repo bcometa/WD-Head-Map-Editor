@@ -9,6 +9,148 @@ from pathlib import Path
 from datetime import datetime
 import io
 
+"""
+WD Head Map Editor - Streamlit Version
+Edit Module 0A head maps for Western Digital hard drives
+"""
+
+import streamlit as st
+import struct
+from pathlib import Path
+from datetime import datetime
+import io
+
+# --------------------------------------------------------------------
+# PASSWORD PROTECTION
+# --------------------------------------------------------------------
+def check_password():
+    """Returns `True` if the user had the correct password."""
+
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if st.session_state["password"] == st.secrets["password"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Don't store password
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # First run, show input for password
+        st.markdown('<div class="main-header">🔐 WD Head Map Editor</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">Please enter password to continue</div>', unsafe_allow_html=True)
+        st.text_input(
+            "Password", type="password", on_change=password_entered, key="password"
+        )
+        return False
+    elif not st.session_state["password_correct"]:
+        # Password incorrect, show input + error
+        st.markdown('<div class="main-header">🔐 WD Head Map Editor</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">Please enter password to continue</div>', unsafe_allow_html=True)
+        st.text_input(
+            "Password", type="password", on_change=password_entered, key="password"
+        )
+        st.error("😕 Password incorrect")
+        return False
+    else:
+        # Password correct
+        return True
+
+# --------------------------------------------------------------------
+# DRIVE CONFIGURATIONS
+# --------------------------------------------------------------------
+DRIVE_CONFIGS = {
+    'SMR 10‑Head (WD50NMZM, etc.)': {
+        'offset': 0x03E,
+        'size': 2,
+        'endian': 'little',
+        'max_heads': 10
+    },
+    'Traditional 4‑Head (WD10JMVW, etc.)': {
+        'offset': 0x23,
+        'size': 1,
+        'endian': 'little',
+        'max_heads': 4
+    },
+    'SMR 8‑Head (WD40NMZW, etc.)': {
+        'offset': 0x03E,
+        'size': 2,
+        'endian': 'little',
+        'max_heads': 8
+    },
+    'Traditional 6‑Head (WD30EZRX, etc.)': {
+        'offset': 0x23,
+        'size': 1,
+        'endian': 'little',
+        'max_heads': 6
+    },
+}
+
+# ... rest of helper functions ...
+
+# --------------------------------------------------------------------
+# STREAMLIT APP
+# --------------------------------------------------------------------
+st.set_page_config(
+    page_title="WD Head Map Editor",
+    page_icon="💾",
+    layout="wide"
+)
+
+# Custom CSS for better styling
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+    }
+    .sub-header {
+        color: #666;
+        margin-bottom: 2rem;
+    }
+    .info-box {
+        background-color: #f0f2f6;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+    }
+    .success-box {
+        background-color: #d4edda;
+        color: #155724;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+    }
+    .warning-box {
+        background-color: #fff3cd;
+        color: #856404;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+    }
+    .head-active {
+        color: green;
+        font-weight: bold;
+    }
+    .head-inactive {
+        color: red;
+        font-weight: bold;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Check password before showing main app
+if not check_password():
+    st.stop()  # Stop execution if password is incorrect
+
+# Main app starts here (only if password is correct)
+# Header
+st.markdown('<div class="main-header">💾 WD Head Map Editor</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Edit Module 0A head maps for Western Digital hard drives</div>', unsafe_allow_html=True)
+
+
+
+
 # --------------------------------------------------------------------
 # DRIVE CONFIGURATIONS
 # --------------------------------------------------------------------
