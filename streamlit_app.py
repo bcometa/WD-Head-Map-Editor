@@ -1,23 +1,40 @@
-"""
-WD Head Map Editor
-"""
-
 import streamlit as st
 import struct
 from pathlib import Path
 from datetime import datetime
 import io
 
-"""
-WD Head Map Editor - Streamlit Version
-Edit Module 0A head maps for Western Digital hard drives
-"""
+# --------------------------------------------------------------------
+# STREAMLIT CONFIG (Must be first)
+# --------------------------------------------------------------------
+st.set_page_config(
+    page_title="WD Head Map Editor",
+    page_icon="💾",
+    layout="wide"
+)
 
-import streamlit as st
-import struct
-from pathlib import Path
-from datetime import datetime
-import io
+# Custom CSS for better styling
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+    }
+    .sub-header {
+        color: #666;
+        margin-bottom: 2rem;
+    }
+    .head-active {
+        color: green;
+        font-weight: bold;
+    }
+    .head-inactive {
+        color: red;
+        font-weight: bold;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # --------------------------------------------------------------------
 # PASSWORD PROTECTION
@@ -54,101 +71,9 @@ def check_password():
         # Password correct
         return True
 
-# --------------------------------------------------------------------
-# DRIVE CONFIGURATIONS
-# --------------------------------------------------------------------
-DRIVE_CONFIGS = {
-    'SMR 10‑Head (WD50NMZM, etc.)': {
-        'offset': 0x03E,
-        'size': 2,
-        'endian': 'little',
-        'max_heads': 10
-    },
-    'Traditional 4‑Head (WD10JMVW, etc.)': {
-        'offset': 0x23,
-        'size': 1,
-        'endian': 'little',
-        'max_heads': 4
-    },
-    'SMR 8‑Head (WD40NMZW, etc.)': {
-        'offset': 0x03E,
-        'size': 2,
-        'endian': 'little',
-        'max_heads': 8
-    },
-    'Traditional 6‑Head (WD30EZRX, etc.)': {
-        'offset': 0x23,
-        'size': 1,
-        'endian': 'little',
-        'max_heads': 6
-    },
-}
-
-# ... rest of helper functions ...
-
-# --------------------------------------------------------------------
-# STREAMLIT APP
-# --------------------------------------------------------------------
-st.set_page_config(
-    page_title="WD Head Map Editor",
-    page_icon="💾",
-    layout="wide"
-)
-
-# Custom CSS for better styling
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        margin-bottom: 0.5rem;
-    }
-    .sub-header {
-        color: #666;
-        margin-bottom: 2rem;
-    }
-    .info-box {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
-    }
-    .success-box {
-        background-color: #d4edda;
-        color: #155724;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
-    }
-    .warning-box {
-        background-color: #fff3cd;
-        color: #856404;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
-    }
-    .head-active {
-        color: green;
-        font-weight: bold;
-    }
-    .head-inactive {
-        color: red;
-        font-weight: bold;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 # Check password before showing main app
 if not check_password():
     st.stop()  # Stop execution if password is incorrect
-
-# Main app starts here (only if password is correct)
-# Header
-st.markdown('<div class="main-header">💾 WD Head Map Editor</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Edit Module 0A head maps for Western Digital hard drives</div>', unsafe_allow_html=True)
-
-
-
 
 # --------------------------------------------------------------------
 # DRIVE CONFIGURATIONS
@@ -220,56 +145,8 @@ def validate_head_map(new_map):
     return True, ""
 
 # --------------------------------------------------------------------
-# STREAMLIT APP
+# MAIN APP (Only shows if password correct)
 # --------------------------------------------------------------------
-st.set_page_config(
-    page_title="WD Head Map Editor",
-    page_icon="💾",
-    layout="wide"
-)
-
-# Custom CSS for better styling
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        margin-bottom: 0.5rem;
-    }
-    .sub-header {
-        color: #666;
-        margin-bottom: 2rem;
-    }
-    .info-box {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
-    }
-    .success-box {
-        background-color: #d4edda;
-        color: #155724;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
-    }
-    .warning-box {
-        background-color: #fff3cd;
-        color: #856404;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
-    }
-    .head-active {
-        color: green;
-        font-weight: bold;
-    }
-    .head-inactive {
-        color: red;
-        font-weight: bold;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 # Header
 st.markdown('<div class="main-header">💾 WD Head Map Editor</div>', unsafe_allow_html=True)
@@ -375,12 +252,9 @@ Field Size: {config['size']} byte(s)
                 is_active = i in active_heads
                 status = "✅ Active" if is_active else "❌ Inactive"
                 
-                # Use a unique key for each checkbox based on head index
-                checkbox_key = f"head_{i}" 
-                
                 if st.checkbox(
                     f"Head {i}",
-                    key=checkbox_key,
+                    key=f"head_{i}",
                     help=f"Current status: {status}"
                 ):
                     selected_heads.append(i)
@@ -393,7 +267,6 @@ Field Size: {config['size']} byte(s)
         
         # Clear All button
         if st.button("🔄 Clear All Selections"):
-            # Reset all checkboxes and rerun
             for i in range(total_heads):
                 st.session_state[f"head_{i}"] = False
             st.rerun()
@@ -542,7 +415,6 @@ Changes Summary:
                     )
                 
                 st.success(f"✅ Ready to download: **{output_filename}**")
-
         
         else:
             st.info("👆 Select heads to toggle above to preview changes")
@@ -583,6 +455,5 @@ with st.sidebar:
     - Active heads (green) will be DISABLED if checked
     - Inactive heads (red) will be ENABLED if checked
     - Original file is not modified
-    - Download creates a new `_modified.0a` file
+    - Filenames show which heads were changed
     """)
-    # Removed Resources section as requested
