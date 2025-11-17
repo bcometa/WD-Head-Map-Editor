@@ -1,6 +1,5 @@
 """
-WD Head Map Editor - Streamlit Version
-Edit Module 0A head maps for Western Digital hard drives
+WD Head Map Editor
 """
 
 import streamlit as st
