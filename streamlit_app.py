@@ -1,8 +1,10 @@
 import streamlit as st
 import struct
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
+import hashlib
 import io
+import extra_streamlit_components as stx
 
 # --------------------------------------------------------------------
 # STREAMLIT CONFIG (Must be first)
@@ -13,7 +15,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS for better styling
+# Custom CSS
 st.markdown("""
 <style>
     .main-header {
@@ -41,8 +43,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --------------------------------------------------------------------
-# PASSWORD PROTECTION
+# COOKIE MANAGER (Initialize once)
 # --------------------------------------------------------------------
+cookie_manager = stx.CookieManager()
+
+# --------------------------------------------------------------------
+# PASSWORD PROTECTION WITH COOKIE PERSISTENCE
+# --------------------------------------------------------------------
+def hash_password(password):
+    """Create a hash of the password for cookie storage"""
+    salt = st.secrets.get("salt", "default_salt_change_me_12345")
+    return hashlib.sha256((password + salt).encode()).hexdigest()
+
 def check_password():
     """Returns `True` if the user had the correct password."""
 
@@ -50,34 +62,68 @@ def check_password():
         """Checks whether a password entered by the user is correct."""
         if st.session_state["password"] == st.secrets["password"]:
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Don't store password
+            
+            # If remember me is checked, set cookie
+            if st.session_state.get("remember_me", False):
+                token = hash_password(st.secrets["password"])
+                cookie_manager.set("wd_auth_token", token, expires_at=datetime.now() + timedelta(days=30))
+                st.success("✅ You will be remembered on this device for 30 days")
+            
+            del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
+
+    # Check for existing valid cookie (auto-login)
+    if "password_correct" not in st.session_state:
+        cookies = cookie_manager.get_all()
+        
+        if cookies and "wd_auth_token" in cookies:
+            token = cookies.get("wd_auth_token")
+            expected_token = hash_password(st.secrets["password"])
+            
+            if token == expected_token:
+                st.session_state["password_correct"] = True
+                return True
 
     if "password_correct" not in st.session_state:
         # First run, show input for password
         st.markdown('<div class="main-header">🔐 WD Head Map Editor</div>', unsafe_allow_html=True)
         st.markdown('<div class="sub-header">Please enter password to continue</div>', unsafe_allow_html=True)
+        
         st.text_input(
             "Password", type="password", on_change=password_entered, key="password"
         )
+        st.checkbox("Remember me on this device (30 days)", key="remember_me", 
+                   help="Save login credentials securely in browser for 30 days")
+        
         return False
     elif not st.session_state["password_correct"]:
-        # Password incorrect, show input + error
+        # Password incorrect
         st.markdown('<div class="main-header">🔐 WD Head Map Editor</div>', unsafe_allow_html=True)
         st.markdown('<div class="sub-header">Please enter password to continue</div>', unsafe_allow_html=True)
+        
         st.text_input(
             "Password", type="password", on_change=password_entered, key="password"
         )
+        st.checkbox("Remember me on this device (30 days)", key="remember_me")
+        
         st.error("😕 Password incorrect")
         return False
     else:
-        # Password correct
+        # Password correct - show logout option in sidebar
         return True
 
-# Check password before showing main app
 if not check_password():
-    st.stop()  # Stop execution if password is incorrect
+    st.stop()
+
+# Add logout button in sidebar after successful login
+with st.sidebar:
+    if st.button("🚪 Logout", use_container_width=True):
+        # Clear session
+        st.session_state["password_correct"] = False
+        # Delete cookie
+        cookie_manager.delete("wd_auth_token")
+        st.rerun()
 
 # --------------------------------------------------------------------
 # DRIVE CONFIGURATIONS
@@ -108,57 +154,65 @@ DRIVE_CONFIGS = {
         'max_heads': 6
     },
     'Custom Offset': {
-        'offset': 0x00,  # Will be set by user
+        'offset': 0x00,
         'size': 1,
         'endian': 'little',
         'max_heads': 10
     }
 }
 
-# Drive family prefixes
 DRIVE_FAMILIES = {
     'N': 'Firebird / FB_USB',
     'Q': 'FB_Lite',
     'W': 'Standard WD',
 }
 
-# Known slider/preamp type mappings (4th character)
+# HSA/Slider type mappings - 4th character (excluding pipes) = HSA type
 SLIDER_PREAMP_TYPES = {
     '7': 'M43.3B2 (Palmer)',
-    'P': 'EC0C_R60',
-    'Y': 'Type Y slider',
-    'X': 'Type X slider',
-    'R': 'Type R slider',
-    'N': 'Type N slider',
-    'K': 'Type K slider',
-    'E': 'Type E slider',
-    'C': 'Type C slider',
-    'H': 'Type H slider',
-    'D': 'Type D slider',
-    '2': 'M16M.1 (Pebble Beach)',
-    '3': 'M41.3A1 (Spyglass)',
     '6': 'M43.3B2 (Palmer)',
+    '3': 'M41.3A1 & 314 (Spyglass)',
+    '2': 'M16M.1 (Pebble Beach)',
+    '5': 'M16M.1/M16M.2 (Pebble Beach)',
+    'P': 'EC0C_R60',
+    'Y': 'Type Y HSA',
+    'X': 'Type X HSA',
+    'R': 'Type R HSA',
+    'N': 'Type N HSA',
+    'K': 'Type K HSA',
+    'E': 'Type E HSA',
+    'C': 'Type C HSA',
+    'H': 'Type H HSA',
+    'D': 'Type D HSA',
+    'M': 'Type M HSA',
 }
+
+def get_head_family(hsa_char):
+    """Identify head family from HSA character"""
+    family_map = {
+        'Pebble Beach': ['2', '5'],
+        'Spyglass': ['3'],
+        'Palmer': ['6', '7'],
+    }
+    for family, chars in family_map.items():
+        if hsa_char in chars:
+            return family
+    return None
 
 # --------------------------------------------------------------------
 # CHECKSUM FUNCTIONS
 # --------------------------------------------------------------------
 def calculate_checksum(data, start=0x1E, end=0x3D, checksum_offset=0x3C):
-    """Calculate sum-to-zero checksum for Module 0A (Traditional drives)"""
-    # Sum all bytes in range EXCEPT the checksum byte itself
     total = sum(data[start:checksum_offset]) + sum(data[checksum_offset+1:end+1])
-    # Calculate what value at checksum_offset makes sum = 0 (mod 256)
     checksum = (-total) & 0xFF
     return checksum
 
 def update_checksum(data):
-    """Update the checksum after modifications"""
     checksum = calculate_checksum(data)
     data[0x3C] = checksum
     return data
 
 def verify_checksum(data):
-    """Verify if current checksum is valid"""
     current_checksum = data[0x3C]
     calculated_checksum = calculate_checksum(data)
     return current_checksum == calculated_checksum
@@ -167,7 +221,6 @@ def verify_checksum(data):
 # HELPER FUNCTIONS
 # --------------------------------------------------------------------
 def read_head_map(data, cfg):
-    """Read the head map value from Module 0A data."""
     offset, size = cfg['offset'], cfg['size']
     if offset + size > len(data):
         raise ValueError(f"Head map offset {offset} exceeds Module size")
@@ -183,14 +236,12 @@ def get_active_heads(head_map, total):
     return [i for i in range(total) if head_map & (1 << i)]
 
 def auto_detect_drive_type(file_data):
-    """Try to auto-detect drive type from head map patterns"""
     for name, config in DRIVE_CONFIGS.items():
         if name == 'Custom Offset':
             continue
         try:
             head_map = read_head_map(file_data, config)
             head_count = get_head_count(head_map)
-            
             if 2 <= head_count <= config['max_heads']:
                 expected = (1 << head_count) - 1
                 if head_map == expected or bin(head_map).count('1') >= head_count - 2:
@@ -205,78 +256,90 @@ def validate_head_map(new_map):
     return True, ""
 
 # --------------------------------------------------------------------
-# SLIDER CODE FUNCTIONS
+# DCM/SLIDER CODE FUNCTIONS
 # --------------------------------------------------------------------
 def read_head_slider_code(data, offset=0x26, length=10):
     """Read the head slider code from Module 0A at offset 0x26"""
     try:
         code_bytes = data[offset:offset+length]
         code = code_bytes.decode('ascii', errors='ignore').strip('\x00')
-        # Validate it looks like a slider code
         if code.startswith('|') and '|' in code[1:]:
             return code
         return None
     except:
         return None
 
+def parse_dcm_details(slider_code):
+    """
+    Parse full DCM structure.
+    DCM format: | N | H J M P D H F
+    Positions (excluding pipes):
+    1. Drive Family (N, Q, W)
+    2. Spindle Motor
+    3. Base
+    4. Latch
+    5. Preamp
+    6. Media
+    7. HSA (Head Stack Assembly / Slider Type) ← CRITICAL for compatibility
+    8. Bottom VCM
+    9. ACA (Arm Coil Assembly)
+    10. Top VCM
+    """
+    if not slider_code:
+        return None
+    
+    clean_code = slider_code.replace('|', '').replace(' ', '')
+    
+    dcm_info = {
+        'family': clean_code[0] if len(clean_code) > 0 else None,
+        'spindle_motor': clean_code[1] if len(clean_code) > 1 else None,
+        'base': clean_code[2] if len(clean_code) > 2 else None,
+        'latch': clean_code[3] if len(clean_code) > 3 else None,
+        'preamp': clean_code[4] if len(clean_code) > 4 else None,
+        'media': clean_code[5] if len(clean_code) > 5 else None,
+        'hsa': clean_code[6] if len(clean_code) > 6 else None,  # SLIDER TYPE (position 7, index 6)
+        'bottom_vcm': clean_code[7] if len(clean_code) > 7 else None,
+        'aca': clean_code[8] if len(clean_code) > 8 else None,
+        'top_vcm': clean_code[9] if len(clean_code) > 9 else None,
+    }
+    
+    return dcm_info
 
 def parse_slider_info(slider_code):
-    """
-    Parse slider type and drive family from head slider code.
-    
-    Format examples:
-      |Q|HJ Y JBHS  → Family: Q (FB_Lite), Slider: Y (4th char)
-      |N|CS R QDCS  → Family: N (Firebird), Slider: R (4th char)
-      |W|2ZECH2F    → Family: W (Standard), Slider: E (4th char)
-    
-    The 4th character (ignoring pipes and spaces) indicates slider type.
-    Slider type must match for optimal R/W compatibility.
-    """
+    """Parse HSA (slider type) and drive family from code."""
     if not slider_code:
         return None, None, None, None
     
-    # Extract family prefix (first character after first |)
     family_char = None
     if slider_code.startswith('|') and len(slider_code) > 2:
         family_char = slider_code[1]
     
     family_name = DRIVE_FAMILIES.get(family_char, 'Unknown')
-    
-    # Remove all pipes and spaces to get clean character sequence
     clean_code = slider_code.replace('|', '').replace(' ', '')
     
-    # 4th character is the slider type
-    slider_char = None
-    preamp_type = None
+    # Position 4 (index 3) when excluding pipes = HSA type (slider type)
+    hsa_char = None
+    hsa_type = None
     
     if len(clean_code) >= 4:
-        slider_char = clean_code[3]  # 4th character (0-indexed = 3)
-        preamp_type = SLIDER_PREAMP_TYPES.get(slider_char, f'Type {slider_char} slider')
+        hsa_char = clean_code[3]  # 4th character = HSA
+        hsa_type = SLIDER_PREAMP_TYPES.get(hsa_char, f'Type {hsa_char} HSA')
     
-    return family_char, family_name, slider_char, preamp_type
+    return family_char, family_name, hsa_char, hsa_type
 
 # --------------------------------------------------------------------
 # HEX VIEWER FUNCTIONS
 # --------------------------------------------------------------------
 def generate_hex_view(data, highlight_ranges=None, bytes_per_row=16):
-    """
-    Generate hex dump with optional highlighting.
-    highlight_ranges: list of (start, end) tuples to highlight
-    """
     lines = []
     for i in range(0, len(data), bytes_per_row):
-        # Offset
         offset = f"{i:04X}"
-        
-        # Hex bytes
         hex_bytes = []
         ascii_chars = []
         
         for j in range(bytes_per_row):
             if i + j < len(data):
                 byte = data[i + j]
-                
-                # Check if this byte should be highlighted
                 is_highlighted = False
                 if highlight_ranges:
                     for start, end in highlight_ranges:
@@ -289,7 +352,6 @@ def generate_hex_view(data, highlight_ranges=None, bytes_per_row=16):
                 else:
                     hex_bytes.append(f"{byte:02X}")
                 
-                # ASCII representation
                 if 32 <= byte < 127:
                     ascii_chars.append(chr(byte))
                 else:
@@ -305,10 +367,8 @@ def generate_hex_view(data, highlight_ranges=None, bytes_per_row=16):
     return "\n".join(lines)
 
 # --------------------------------------------------------------------
-# MAIN APP (Only shows if password correct)
+# MAIN APP
 # --------------------------------------------------------------------
-
-# Header
 st.markdown('<div class="main-header">💾 WD Head Map Editor</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">Edit Module 0A head maps for Western Digital hard drives</div>', unsafe_allow_html=True)
 
@@ -342,7 +402,6 @@ if uploaded_file is not None:
     
     file_size = len(st.session_state.file_data)
     
-    # Validation
     if file_size < 256:
         st.warning("⚠️ File is very small for a Module 0A. Are you sure this is the correct file?")
     elif file_size > 16384:
@@ -351,21 +410,23 @@ if uploaded_file is not None:
         st.success(f"✅ Loaded: **{st.session_state.file_name}** ({file_size:,} bytes)")
 
 # --------------------------------------------------------------------
-# 2. SLIDER CODE INFO (Show early for reference)
+# 2. DCM / SLIDER CODE INFO
 # --------------------------------------------------------------------
 if st.session_state.file_data is not None:
     st.markdown("---")
-    st.markdown("### 2️⃣ Head Slider Information")
+    st.markdown("### 2️⃣ DCM / Head Slider Information")
 
     slider_code = read_head_slider_code(st.session_state.file_data)
 
     if slider_code:
-        family_char, family_name, slider_char, preamp_type = parse_slider_info(slider_code)
+        family_char, family_name, hsa_char, hsa_type = parse_slider_info(slider_code)
+        head_family = get_head_family(hsa_char)
+        dcm = parse_dcm_details(slider_code)
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Slider Code", slider_code)
+            st.metric("DCM Code", slider_code)
         
         with col2:
             if family_char:
@@ -374,94 +435,176 @@ if st.session_state.file_data is not None:
                 st.metric("Drive Family", "Unknown")
         
         with col3:
-            if slider_char:
-                st.metric("Slider Type", f"Type {slider_char}", 
-                         help="4th character - must match for R/W compatibility")
+            if hsa_char:
+                st.metric("HSA (Slider Type)", f"Type {hsa_char}", 
+                         help="4th character (HSA) - must match for R/W compatibility")
             else:
-                st.metric("Slider Type", "Unknown")
+                st.metric("HSA (Slider Type)", "Unknown")
         
         with col4:
-            if preamp_type:
-                st.metric("Preamp/Slider", preamp_type)
+            if head_family:
+                emoji_map = {'Pebble Beach': '🏖️', 'Spyglass': '🔭', 'Palmer': '🌴'}
+                st.metric("Head Family", 
+                         f"{emoji_map.get(head_family, '📌')} {head_family}",
+                         help="Donor heads must match this family")
+            elif hsa_type:
+                st.metric("Preamp", hsa_type)
             else:
-                st.metric("Preamp/Slider", "Not identified")
+                st.metric("Preamp", "Not identified")
         
-        # Important warning
-        st.info("⚠️ **Slider Compatibility**: For optimal read/write compatibility, donor heads must have the **same slider type** (4th character must match).")
+        st.info("⚠️ **HSA Compatibility**: For optimal read/write compatibility, donor heads must have the **same HSA type** (4th character must match).")
         
-        # Detailed info
-        with st.expander("📋 Detailed Slider Code Analysis"):
+        # Detailed DCM breakdown
+        with st.expander("📋 Detailed DCM Structure Analysis"):
             clean_code = slider_code.replace('|', '').replace(' ', '')
             
-            # Show character breakdown
-            st.markdown("**Character Breakdown** (ignoring pipes and spaces):")
-            char_table = "| Position | Character | Meaning |\n|:---|:---:|:---|\n"
-            meanings = ["Drive Family", "Code Char 1", "Code Char 2", "**SLIDER TYPE**", 
-                       "Code Char 4", "Code Char 5", "Code Char 6", "Code Char 7"]
+            st.markdown("### DCM (Drive Configuration Management) Breakdown")
+            st.markdown("""
+The DCM code encodes physical drive components where each position identifies a specific part.
+            """)
             
-            for i, char in enumerate(clean_code[:8]):
-                meaning = meanings[i] if i < len(meanings) else "Code char"
-                char_table += f"| {i+1} | **{char}** | {meaning} |\n"
+            dcm_table = f"""
+| Position | Character | Component | Value | Priority |
+|:---------|:---------:|:----------|:------|:---------|
+| 1 | **{dcm['family'] or '?'}** | Drive Family | &#124;{dcm['family'] or '?'}&#124; ({family_name}) | ℹ️ Info |
+| 2 | **{dcm['spindle_motor'] or '?'}** | Spindle Motor | {dcm['spindle_motor'] or '?'} | 🟡 Low |
+| 3 | **{dcm['base'] or '?'}** | Base | {dcm['base'] or '?'} | 🟡 Low |
+| 4 | **{dcm['latch'] or '?'}** | Latch | {dcm['latch'] or '?'} | 🟡 Low |
+| 5 | **{dcm['preamp'] or '?'}** | Preamp | {dcm['preamp'] or '?'} | 🟠 High |
+| 6 | **{dcm['media'] or '?'}** | Media Type | {dcm['media'] or '?'} | 🟠 High |
+| 7 | **{dcm['hsa'] or '?'}** | **HSA (Slider)** | **{hsa_type or 'Unknown'}** | 🔴 **CRITICAL** |
+| 8 | **{dcm['bottom_vcm'] or '?'}** | Bottom VCM | {dcm['bottom_vcm'] or '?'} | 🟠 High |
+| 9 | **{dcm['aca'] or '?'}** | ACA | {dcm['aca'] or '?'} | 🟠 High |
+| 10 | **{dcm['top_vcm'] or '?'}** | Top VCM | {dcm['top_vcm'] or '?'} | 🟢 Medium |
+"""
+            st.markdown(dcm_table)
             
-            st.markdown(char_table)
+            st.info("""
+**💡 For Donor Compatibility:**
+- **🔴 CRITICAL**: Position 7 (HSA/Slider Type) must **exactly match**
+- **🟠 HIGH**: Positions 5-6, 8-9 should match for best results
+- **🟡 LOW**: Positions 2-4 can vary if HSA matches
+- **🟢 MEDIUM**: Position 10 less critical
+            """)
             
             st.code(f"""
-Original Code: {slider_code}
+Full DCM Code: {slider_code}
 Clean Code:    {clean_code}
 
-Drive Family:  |{family_char}| = {family_name}
-Slider Type:   {slider_char} (4th character)
-Preamp/Slider: {preamp_type}
+Drive Family:    |{family_char}| = {family_name}
+HSA Type:        {hsa_char} (Position 4 when excluding pipes) ← MUST MATCH
+Head Family:     {head_family if head_family else 'Unknown'}
+
+Component Breakdown:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Spindle Motor:   {dcm['spindle_motor']}
+Base:            {dcm['base']}
+Latch:           {dcm['latch']}
+Preamp:          {dcm['preamp']}
+Media Type:      {dcm['media']}
+HSA (Slider):    {dcm['hsa']} ← {hsa_type}
+Bottom VCM:      {dcm['bottom_vcm']}
+ACA:             {dcm['aca']}
+Top VCM:         {dcm['top_vcm']}
 
 Code Location: Offset 0x26 in Module 0A
 Full ROM Address: 0x0007C020
 
-Known Slider Type Mappings:
-7 → M43.3B2 (Palmer)
-P → EC0C_R60
-E → Type E slider
-D → Type D slider (possibly M43.3B2)
-M → Type M slider
-2 → M16M.1 (Pebble Beach)
-3 → M41.3A1 (Spyglass)
-6 → M43.3B2 (Palmer)
-""")
+Known HSA/Slider Families:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏖️  Pebble Beach (M16M.1 / M16M.2)
+  2, 5 → Examples: |W|2J52H3F, |W|MJ62EMJ
 
-            
-        # Show hex dump
+🔭 Spyglass (M41.3A1 & 314)
+  3 → Examples: |W|2J3CHMC, |W|MJ6DHMC
+
+🌴 Palmer (M43.3B2)
+  6, 7 → Examples: |W|2J6DH2C, |W|2J6CH27
+
+Other HSA Types:
+  P → EC0C_R60
+  E, C, H, R, N, X, Y, K, D, M → Various HSA types
+            """)
+        
+        # Hex dump
         slider_bytes = st.session_state.file_data[0x26:0x26+10]
         hex_str = ' '.join([f'{b:02X}' for b in slider_bytes])
         ascii_str = ''.join([chr(b) if 32 <= b < 127 else '.' for b in slider_bytes])
         st.code(f"Offset 0x26 (hex):\n{hex_str}\n\nASCII:\n{ascii_str}")
-            
+        
         # Compatibility checker
         with st.expander("🔍 Donor Compatibility Checker"):
-            st.markdown("Enter a donor drive's slider code to check compatibility:")
-            donor_code = st.text_input("Donor Slider Code", placeholder="|W|2ZECH2F")
+            st.markdown("Enter a donor drive's DCM code to check compatibility:")
+            donor_code = st.text_input("Donor DCM Code", placeholder="|W|2ZECH2F")
             
             if donor_code:
-                _, _, donor_slider, _ = parse_slider_info(donor_code)
+                _, _, donor_hsa, _ = parse_slider_info(donor_code)
+                donor_family = get_head_family(donor_hsa)
+                donor_dcm = parse_dcm_details(donor_code)
                 
-                if donor_slider and slider_char:
-                    if donor_slider == slider_char:
-                        st.success(f"✅ **COMPATIBLE** - Both drives use Type {slider_char} slider")
-                    else:
-                        st.error(f"❌ **NOT COMPATIBLE** - Original: Type {slider_char}, Donor: Type {donor_slider}")
-                        st.warning("Using mismatched sliders may result in poor R/W performance!")
-                else:
-                    st.warning("Could not parse slider type from one or both codes")
+                if donor_hsa and hsa_char:
+                    hsa_match = donor_hsa == hsa_char
+                    family_match = head_family and donor_family and head_family == donor_family
                     
+                    st.markdown("### Component-by-Component Comparison")
+                    
+                    comp_table = "| Component | Original | Donor | Match | Priority |\n"
+                    comp_table += "|:----------|:--------:|:-----:|:-----:|:--------:|\n"
+                    
+                    components = [
+                        ('Spindle Motor', 'spindle_motor', '🟡 Low'),
+                        ('Base', 'base', '🟡 Low'),
+                        ('Latch', 'latch', '🟡 Low'),
+                        ('Preamp', 'preamp', '🟠 High'),
+                        ('Media Type', 'media', '🟠 High'),
+                        ('**HSA (Slider)**', 'hsa', '🔴 **CRITICAL**'),
+                        ('Bottom VCM', 'bottom_vcm', '🟠 High'),
+                        ('ACA', 'aca', '🟠 High'),
+                        ('Top VCM', 'top_vcm', '🟢 Medium'),
+                    ]
+                    
+                    for comp_name, key, priority in components:
+                        orig_val = dcm.get(key, '?')
+                        donor_val = donor_dcm.get(key, '?')
+                        match = '✅' if orig_val == donor_val else '❌'
+                        comp_table += f"| {comp_name} | **{orig_val}** | **{donor_val}** | {match} | {priority} |\n"
+                    
+                    st.markdown(comp_table)
+                    
+                    if hsa_match:
+                        st.success(f"✅ **HSA MATCH** - Type {hsa_char}")
+                        if family_match:
+                            st.success(f"✅ **Same Head Family**: {head_family}")
+                        
+                        matches = sum([
+                            dcm.get('preamp') == donor_dcm.get('preamp'),
+                            dcm.get('media') == donor_dcm.get('media'),
+                            dcm.get('bottom_vcm') == donor_dcm.get('bottom_vcm'),
+                            dcm.get('aca') == donor_dcm.get('aca'),
+                        ])
+                        
+                        if matches >= 3:
+                            st.success(f"🌟 **EXCELLENT MATCH** - {matches}/4 high-priority components match")
+                        elif matches >= 2:
+                            st.info(f"👍 **GOOD MATCH** - {matches}/4 high-priority components match")
+                        else:
+                            st.warning(f"⚠️ **ACCEPTABLE** - Only {matches}/4 high-priority components match. May work but not ideal.")
+                    else:
+                        st.error(f"❌ **INCOMPATIBLE** - HSA types don't match!")
+                        st.error(f"Original: Type {hsa_char} ({head_family or 'Unknown'}) | Donor: Type {donor_hsa} ({donor_family or 'Unknown'})")
+                        st.warning("⚠️ Using mismatched HSA types will likely cause R/W failures!")
+                else:
+                    st.warning("Could not parse HSA type from one or both codes")
     else:
-        st.warning("⚠️ Could not read head slider code from Module 0A")
+        st.warning("⚠️ Could not read DCM/slider code from Module 0A")
 
 # --------------------------------------------------------------------
 # 3. DRIVE TYPE SELECTION
 # --------------------------------------------------------------------
 if st.session_state.file_data is not None:
     st.markdown("---")
-    st.markdown("### 3️⃣ Select Drive Type (if auto-detect is wrong)")
+    st.markdown("### 3️⃣ Select Drive Type")
     
-    # Auto-detect
     detected_type = auto_detect_drive_type(st.session_state.file_data)
     
     col1, col2 = st.columns([3, 1])
@@ -512,7 +655,6 @@ if st.session_state.file_data is not None:
             )
             config['max_heads'] = st.session_state.custom_max_heads
     else:
-        # Show current config
         with st.expander("ℹ️ Drive Configuration Details"):
             st.code(f"""
 Drive Type: {drive_type}
@@ -541,10 +683,9 @@ Max Heads: {config['max_heads']}
             st.metric("Head Map Value", f"0x{original_head_map:04X}")
         
         # Checksum info for traditional drives
-        if config['offset'] == 0x23:  # Traditional drive
+        if config['offset'] == 0x23:
             checksum_valid = verify_checksum(st.session_state.file_data)
             current_checksum = st.session_state.file_data[0x3C]
-            
             st.info(f"📋 **Traditional Drive Detected** - Checksum at 0x3C: 0x{current_checksum:02X} {'✅ Valid' if checksum_valid else '⚠️ Invalid'}")
         
         with st.expander("📊 View Detailed Head Map Info"):
@@ -563,7 +704,6 @@ Field Size: {config['size']} byte(s)
         st.markdown("### 5️⃣ Toggle Heads (Enable/Disable)")
         st.info("💡 Check heads to **toggle** their state. Active heads will be disabled, inactive heads will be enabled.")
         
-        # Create checkboxes in columns
         cols_layout = st.columns(5)
         selected_heads = []
         
@@ -579,13 +719,11 @@ Field Size: {config['size']} byte(s)
                 ):
                     selected_heads.append(i)
                 
-                # Show status
                 if is_active:
                     st.markdown(f'<span class="head-active">{status}</span>', unsafe_allow_html=True)
                 else:
                     st.markdown(f'<span class="head-inactive">{status}</span>', unsafe_allow_html=True)
         
-        # Clear All button
         if st.button("🔄 Clear All Selections"):
             for i in range(total_heads):
                 st.session_state[f"head_{i}"] = False
@@ -598,12 +736,10 @@ Field Size: {config['size']} byte(s)
             st.markdown("---")
             st.markdown("### 6️⃣ Preview Changes")
             
-            # Calculate new head map
             new_map = original_head_map
             for h in selected_heads:
                 new_map ^= (1 << h)
             
-            # Validate
             is_valid, error_msg = validate_head_map(new_map)
             
             if not is_valid:
@@ -631,7 +767,6 @@ Active: {new_active}
 Disabled: {new_disabled}
                     """)
                 
-                # Changes summary
                 st.markdown("**📝 Changes Summary**")
                 for h in selected_heads:
                     if h in active_heads:
@@ -639,15 +774,15 @@ Disabled: {new_disabled}
                     else:
                         st.markdown(f"- Head {h}: **Inactive** → **ENABLED** ✅")
                 
-                # Checksum option for traditional drives
+                # Checksum option
                 update_checksum_option = False
-                if config['offset'] == 0x23:  # Traditional drive
+                if config['offset'] == 0x23:
                     st.markdown("---")
                     st.markdown("#### Checksum Options")
                     update_checksum_option = st.checkbox(
                         "Update checksum after modification (Traditional drives only)",
                         value=False,
-                        help="Checksum at 0x3C covers 0x1E-0x3D. Enable this if you experience issues with the modified module."
+                        help="Checksum at 0x3C covers 0x1E-0x3D. Enable if you experience issues."
                     )
                     
                     if update_checksum_option:
@@ -674,14 +809,10 @@ Offset 0x{offset:04X}-0x{offset+1:04X}:
                         """)
                     
                     if update_checksum_option:
-                        # Show checksum change
                         old_checksum = st.session_state.file_data[0x3C]
-                        
-                        # Calculate new checksum
                         temp_data = bytearray(st.session_state.file_data)
                         temp_data[offset] = new_map & 0xFF
                         new_checksum = calculate_checksum(temp_data)
-                        
                         st.code(f"""
 Checksum at 0x3C:
   Before: 0x{old_checksum:02X}
@@ -692,7 +823,6 @@ Checksum at 0x3C:
                 # 7. HEX VIEWER
                 # --------------------------------------------------------------------
                 with st.expander("🔬 Hex Viewer - Compare Original vs Modified"):
-                    # Create modified data for preview
                     preview_data = bytearray(st.session_state.file_data)
                     offset, size = config['offset'], config['size']
                     
@@ -701,11 +831,9 @@ Checksum at 0x3C:
                     else:
                         preview_data[offset:offset+2] = struct.pack('<H', new_map)
                     
-                    # Update checksum if requested
                     if update_checksum_option:
                         preview_data = update_checksum(preview_data)
                     
-                    # Determine highlight ranges
                     highlight_ranges = [(offset, offset + size)]
                     if update_checksum_option:
                         highlight_ranges.append((0x3C, 0x3D))
@@ -714,7 +842,6 @@ Checksum at 0x3C:
                     
                     with col1:
                         st.markdown("**Original Data**")
-                        # Show relevant section (around the changed bytes)
                         start_view = max(0, (offset // 16) * 16 - 32)
                         end_view = min(len(st.session_state.file_data), ((offset + size) // 16 + 3) * 16)
                         
@@ -735,12 +862,11 @@ Checksum at 0x3C:
                     st.caption("Note: Changed bytes are shown in [brackets]")
                 
                 # --------------------------------------------------------------------
-                # 8. SAVE
+                # 8. DOWNLOAD
                 # --------------------------------------------------------------------
                 st.markdown("---")
                 st.markdown("### 7️⃣ Download Files")
                 
-                # Create modified file data
                 mod_data = bytearray(st.session_state.file_data)
                 offset, size = config['offset'], config['size']
                 if size == 1:
@@ -748,18 +874,13 @@ Checksum at 0x3C:
                 else:
                     mod_data[offset:offset+2] = struct.pack('<H', new_map)
                 
-                # Update checksum if requested
                 if update_checksum_option:
                     mod_data = update_checksum(mod_data)
                 
-                # Determine output filename with descriptive naming
                 original_stem = Path(st.session_state.file_name).stem
-                
-                # Build descriptive filename based on changes
                 disabled_heads = [h for h in selected_heads if h in active_heads]
                 enabled_heads = [h for h in selected_heads if h not in active_heads]
                 
-                # Create filename suffix
                 suffix_parts = []
                 if disabled_heads:
                     heads_str = "_".join([f"H{h}" for h in disabled_heads])
@@ -783,7 +904,14 @@ Checksum at 0x3C:
                     )
                 
                 with col2:
-                    # Generate report
+                    # Get DCM info for report
+                    slider_code = read_head_slider_code(st.session_state.file_data)
+                    if slider_code:
+                        _, _, hsa_char, hsa_type = parse_slider_info(slider_code)
+                        head_family = get_head_family(hsa_char)
+                    else:
+                        slider_code, hsa_char, hsa_type, head_family = 'N/A', 'N/A', 'N/A', 'N/A'
+                    
                     report = f"""WD Head Map Modification Report
 {'=' * 50}
 
@@ -792,9 +920,10 @@ Output File: {output_filename}
 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 Drive Type: {drive_type}
 
-Head Slider Code: {slider_code if slider_code else 'N/A'}
-Slider Type: {slider_char if slider_char else 'N/A'}
-Preamp: {preamp_type if preamp_type else 'N/A'}
+DCM Code: {slider_code}
+HSA (Slider) Type: {hsa_char}
+Preamp: {hsa_type}
+Head Family: {head_family}
 
 Original Head Map: 0x{original_head_map:04X}
 New Head Map: 0x{new_map:04X}
@@ -843,7 +972,7 @@ st.markdown("""
 <div style='text-align: center; color: #666; padding: 2rem;'>
     <p><strong>⚠️ For data recovery professionals only. Use at your own risk.</strong></p>
     <p>Remember to physically cut damaged heads before editing the head map.</p>
-    <p>Made with ❤️ for efficiency | v2.0</p>
+    <p>Made with ❤️ for efficiency | v2.1</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -856,30 +985,43 @@ with st.sidebar:
     ### How to Use
     
     1. **Upload** your Module 0A file
-    2. **Check slider type** for donor compatibility
+    2. **Check DCM/HSA type** for donor compatibility
     3. **Select** your drive type (auto-detected)
     4. **Review** current head map
     5. **Toggle** heads you want to enable/disable
     6. **Preview** changes in hex viewer
     7. **Download** modified file & report
     
-    ### Slider Type (4th Character)
-
-    The **4th character** in the slider code identifies the slider type:
-    - Must **match exactly** for donor compatibility
-    - Found at offset 0x26 in Module 0A    # ← Fixed!
-
+    ### DCM Structure
     
-    **Format**: `|X|YY Z SSSS`
-    - X = Drive family (N, Q, W)
-    - YY = Code prefix
-    - **Z = Slider type** ← Must match!
-    - SSSS = Additional code
+    The DCM code encodes drive components:
+    
+    **Format**: `|X|ABCDEFGH`
+    - **X** = Drive family (N, Q, W)
+    - **Position 4** (excluding pipes) = **HSA (Slider Type)** ← Must match!
+    
+    **DCM Positions** (excluding pipes):
+    1. Drive Family
+    2. Spindle Motor
+    3. Base
+    4. Latch
+    5. Preamp
+    6. Media
+    7. **HSA (Slider)** ← Critical!
+    8. Bottom VCM
+    9. ACA
+    10. Top VCM
     
     **Examples**:
-    - `|Q|HJ Y JBHS` → Type **Y** slider
-    - `|N|CS R QDCS` → Type **R** slider  
-    - `|W|2ZECH2F` → Type **E** slider
+    - `|W|2ZEDEM7` → HSA Type **E** (position 4)
+    - `|W|2J6DH2C` → HSA Type **6** (Palmer family)
+    - `|N|HJMPDHF` → HSA Type **P**
+    
+    ### Head Families
+    
+    - 🏖️ **Pebble Beach** (2, 5) → M16M.1/M16M.2
+    - 🔭 **Spyglass** (3) → M41.3A1 & 314
+    - 🌴 **Palmer** (6, 7) → M43.3B2
     
     ### Drive Families
     
@@ -887,28 +1029,34 @@ with st.sidebar:
     - **|Q|** = FB_Lite
     - **|W|** = Standard WD drives
     
+    ### DCM Location
+    
+    - **Offset**: 0x26 in Module 0A
+    - **ROM Address**: 0x0007C020
+    
     ### Checksum (Traditional Drives)
     
-    Traditional drives (offset 0x23) use a checksum at 0x3C:
+    Traditional drives (offset 0x23):
+    - Checksum at 0x3C
     - Covers bytes 0x1E through 0x3D
-    - Sum-to-zero algorithm
     - **Usually not needed** (leave unchecked)
     - Enable if drive rejects the module
     
     ### Custom Offset
     
     For unknown drive types:
-    - Select "Custom Offset" from drive type
-    - Enter head map location in hex (e.g., 0x3E)
+    - Select "Custom Offset"
+    - Enter head map location (hex)
     - Specify field size (1 or 2 bytes)
-    - Set maximum number of heads
+    - Set maximum heads
     
     ### Tips
     
+    - HSA types must **exactly match** for R/W
     - At least one head must remain active
-    - Slider types must match for optimal R/W
     - Original file is never modified
     - Use hex viewer to verify changes
-    - Filenames show which heads were changed
-    - Check slider code before sourcing donors
+    - Check DCM code before sourcing donors
+    - Remember Me keeps you logged in for 30 days
+    - Use Logout button to clear saved login
     """)
