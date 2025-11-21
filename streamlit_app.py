@@ -272,15 +272,16 @@ def read_head_slider_code(data, offset=0x26, length=10):
 def parse_dcm_details(slider_code):
     """
     Parse full DCM structure.
-    DCM format: | N | H J M P D H F
-    Positions (excluding pipes):
+    THE HSA IS AT POSITION 4 (excluding pipes), NOT POSITION 7!
+    
+    Correct positions (excluding pipes):
     1. Drive Family (N, Q, W)
     2. Spindle Motor
     3. Base
-    4. Latch
-    5. Preamp
-    6. Media
-    7. HSA (Head Stack Assembly / Slider Type) ← CRITICAL for compatibility
+    4. HSA (Head Stack Assembly / Slider Type) ← Position 4!
+    5. Latch
+    6. Preamp
+    7. Media
     8. Bottom VCM
     9. ACA (Arm Coil Assembly)
     10. Top VCM
@@ -294,16 +295,17 @@ def parse_dcm_details(slider_code):
         'family': clean_code[0] if len(clean_code) > 0 else None,
         'spindle_motor': clean_code[1] if len(clean_code) > 1 else None,
         'base': clean_code[2] if len(clean_code) > 2 else None,
-        'latch': clean_code[3] if len(clean_code) > 3 else None,
-        'preamp': clean_code[4] if len(clean_code) > 4 else None,
-        'media': clean_code[5] if len(clean_code) > 5 else None,
-        'hsa': clean_code[6] if len(clean_code) > 6 else None,  # SLIDER TYPE (position 7, index 6)
+        'hsa': clean_code[3] if len(clean_code) > 3 else None,  # POSITION 4 = HSA!
+        'latch': clean_code[4] if len(clean_code) > 4 else None,
+        'preamp': clean_code[5] if len(clean_code) > 5 else None,
+        'media': clean_code[6] if len(clean_code) > 6 else None,
         'bottom_vcm': clean_code[7] if len(clean_code) > 7 else None,
         'aca': clean_code[8] if len(clean_code) > 8 else None,
         'top_vcm': clean_code[9] if len(clean_code) > 9 else None,
     }
     
     return dcm_info
+
 
 def parse_slider_info(slider_code):
     """Parse HSA (slider type) and drive family from code."""
@@ -469,23 +471,24 @@ The DCM code encodes physical drive components where each position identifies a 
 | 1 | **{dcm['family'] or '?'}** | Drive Family | &#124;{dcm['family'] or '?'}&#124; ({family_name}) | ℹ️ Info |
 | 2 | **{dcm['spindle_motor'] or '?'}** | Spindle Motor | {dcm['spindle_motor'] or '?'} | 🟡 Low |
 | 3 | **{dcm['base'] or '?'}** | Base | {dcm['base'] or '?'} | 🟡 Low |
-| 4 | **{dcm['latch'] or '?'}** | Latch | {dcm['latch'] or '?'} | 🟡 Low |
-| 5 | **{dcm['preamp'] or '?'}** | Preamp | {dcm['preamp'] or '?'} | 🟠 High |
-| 6 | **{dcm['media'] or '?'}** | Media Type | {dcm['media'] or '?'} | 🟠 High |
-| 7 | **{dcm['hsa'] or '?'}** | **HSA (Slider)** | **{hsa_type or 'Unknown'}** | 🔴 **CRITICAL** |
+| 4 | **{dcm['hsa'] or '?'}** | **HSA (Slider)** | **{hsa_type or 'Unknown'}** | 🔴 **CRITICAL** |
+| 5 | **{dcm['latch'] or '?'}** | Latch | {dcm['latch'] or '?'} | 🟡 Low |
+| 6 | **{dcm['preamp'] or '?'}** | Preamp | {dcm['preamp'] or '?'} | 🟠 High |
+| 7 | **{dcm['media'] or '?'}** | Media Type | {dcm['media'] or '?'} | 🟠 High |
 | 8 | **{dcm['bottom_vcm'] or '?'}** | Bottom VCM | {dcm['bottom_vcm'] or '?'} | 🟠 High |
 | 9 | **{dcm['aca'] or '?'}** | ACA | {dcm['aca'] or '?'} | 🟠 High |
 | 10 | **{dcm['top_vcm'] or '?'}** | Top VCM | {dcm['top_vcm'] or '?'} | 🟢 Medium |
 """
+
             st.markdown(dcm_table)
             
             st.info("""
 **💡 For Donor Compatibility:**
-- **🔴 CRITICAL**: Position 7 (HSA/Slider Type) must **exactly match**
-- **🟠 HIGH**: Positions 5-6, 8-9 should match for best results
-- **🟡 LOW**: Positions 2-4 can vary if HSA matches
+- **🔴 CRITICAL**: Position 4 (HSA/Slider Type) must **exactly match**
+- **🟠 HIGH**: Positions 6-7, 8-9 should match for best results
+- **🟡 LOW**: Positions 2-3, 5 can vary if HSA matches
 - **🟢 MEDIUM**: Position 10 less critical
-            """)
+""")
             
             st.code(f"""
 Full DCM Code: {slider_code}
