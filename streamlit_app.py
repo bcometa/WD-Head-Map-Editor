@@ -207,14 +207,18 @@ def validate_head_map(new_map):
 # --------------------------------------------------------------------
 # SLIDER CODE FUNCTIONS
 # --------------------------------------------------------------------
-def read_head_slider_code(data, offset=0x1A, length=12):
-    """Read the head slider code from Module 0A"""
+def read_head_slider_code(data, offset=0x26, length=10):
+    """Read the head slider code from Module 0A at offset 0x26"""
     try:
         code_bytes = data[offset:offset+length]
         code = code_bytes.decode('ascii', errors='ignore').strip('\x00')
-        return code
+        # Validate it looks like a slider code
+        if code.startswith('|') and '|' in code[1:]:
+            return code
+        return None
     except:
         return None
+
 
 def parse_slider_info(slider_code):
     """
@@ -409,29 +413,26 @@ Drive Family:  |{family_char}| = {family_name}
 Slider Type:   {slider_char} (4th character)
 Preamp/Slider: {preamp_type}
 
-Code Location: Offset 0x1A in Module 0A
+Code Location: Offset 0x26 in Module 0A
 Full ROM Address: 0x0007C020
 
 Known Slider Type Mappings:
-  7 → M43.3B2 (Palmer)
-  P → EC0C_R60
-  2 → M16M.1 (Pebble Beach)
-  3 → M41.3A1 (Spyglass)
-  6 → M43.3B2 (Palmer)
-  E, C, H, R, N, X, Y, K, D → Various slider types
+7 → M43.3B2 (Palmer)
+P → EC0C_R60
+E → Type E slider
+D → Type D slider (possibly M43.3B2)
+M → Type M slider
+2 → M16M.1 (Pebble Beach)
+3 → M41.3A1 (Spyglass)
+6 → M43.3B2 (Palmer)
+""")
 
-Example Codes by Family:
-  |Q|HJ Y JBHS → FB_Lite family, Type Y slider
-  |N|CS R QDCS → Firebird family, Type R slider
-  |W|2ZECH2F   → Standard WD, Type E slider
-  |W|2J6DH2C   → Standard WD, Type D slider (M43.3B2)
-            """)
             
-            # Show hex dump
-            slider_bytes = st.session_state.file_data[0x1A:0x1A+12]
-            hex_str = ' '.join([f'{b:02X}' for b in slider_bytes])
-            ascii_str = ''.join([chr(b) if 32 <= b < 127 else '.' for b in slider_bytes])
-            st.code(f"Offset 0x1A (hex):\n{hex_str}\n\nASCII:\n{ascii_str}")
+        # Show hex dump
+        slider_bytes = st.session_state.file_data[0x26:0x26+10]
+        hex_str = ' '.join([f'{b:02X}' for b in slider_bytes])
+        ascii_str = ''.join([chr(b) if 32 <= b < 127 else '.' for b in slider_bytes])
+        st.code(f"Offset 0x26 (hex):\n{hex_str}\n\nASCII:\n{ascii_str}")
             
         # Compatibility checker
         with st.expander("🔍 Donor Compatibility Checker"):
@@ -458,7 +459,7 @@ Example Codes by Family:
 # --------------------------------------------------------------------
 if st.session_state.file_data is not None:
     st.markdown("---")
-    st.markdown("### 3️⃣ Select Drive Type")
+    st.markdown("### 3️⃣ Select Drive Type (if auto-detect is wrong)")
     
     # Auto-detect
     detected_type = auto_detect_drive_type(st.session_state.file_data)
@@ -863,10 +864,11 @@ with st.sidebar:
     7. **Download** modified file & report
     
     ### Slider Type (4th Character)
-    
+
     The **4th character** in the slider code identifies the slider type:
     - Must **match exactly** for donor compatibility
-    - Found at offset 0x1A in Module 0A
+    - Found at offset 0x26 in Module 0A    # ← Fixed!
+
     
     **Format**: `|X|YY Z SSSS`
     - X = Drive family (N, Q, W)
