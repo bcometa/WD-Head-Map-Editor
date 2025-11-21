@@ -887,37 +887,24 @@ with st.sidebar:
     ### How to Use
     
     1. **Upload** your Module 0A file
-    2. **Check DCM/HSA type** for donor compatibility
+    2. **Check HSA slider type** for donor compatibility
     3. **Select** your drive type (auto-detected)
     4. **Review** current head map
     5. **Toggle** heads you want to enable/disable
     6. **Preview** changes in hex viewer
     7. **Download** modified file & report
     
-    ### DCM Structure
+    ### HSA Slider Version
     
-    The DCM code encodes drive components:
-    
-    **Format**: `|X|ABCDEFGH`
-    - **X** = Drive family (N, Q, W)
-    - **Position 4** (excluding pipes) = **HSA (Slider Type)** ← Must match!
-    
-    **DCM Positions** (excluding pipes):
-    1. Drive Family
-    2. Spindle Motor
-    3. Base
-    4. Latch
-    5. Preamp
-    6. Media
-    7. **HSA (Slider)** ← Critical!
-    8. Bottom VCM
-    9. ACA
-    10. Top VCM
+    The **4th character** (excluding pipes) identifies the HSA slider type:
+    - **MUST match exactly** for donor compatibility
+    - Found at offset 0x26 in Module 0A
     
     **Examples**:
-    - `|W|2ZEDEM7` → HSA Type **E** (position 4)
-    - `|W|2J6DH2C` → HSA Type **6** (Palmer family)
-    - `|N|HJMPDHF` → HSA Type **P**
+    - `|W|2ZECH2F` → HSA Type **E**
+    - `|W|2J6DH2C` → HSA Type **6** (Palmer)
+    - `|W|2J52H3F` → HSA Type **5** (Pebble Beach)
+    - `|W|2J3CHMC` → HSA Type **3** (Spyglass)
     
     ### Head Families
     
@@ -930,11 +917,6 @@ with st.sidebar:
     - **|N|** = Firebird / FB_USB
     - **|Q|** = FB_Lite
     - **|W|** = Standard WD drives
-    
-    ### DCM Location
-    
-    - **Offset**: 0x26 in Module 0A
-    - **ROM Address**: 0x0007C020
     
     ### Checksum (Traditional Drives)
     
@@ -954,11 +936,11 @@ with st.sidebar:
     
     ### Tips
     
-    - HSA types must **exactly match** for R/W
+    - **HSA types must exactly match** for R/W compatibility
     - At least one head must remain active
     - Original file is never modified
     - Use hex viewer to verify changes
-    - Check DCM code before sourcing donors
+    - Check HSA slider version before sourcing donors
     - Remember Me keeps you logged in for 30 days
     - Use Logout button to clear saved login
     """)
