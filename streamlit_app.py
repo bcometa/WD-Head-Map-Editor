@@ -416,190 +416,89 @@ if uploaded_file is not None:
 # --------------------------------------------------------------------
 if st.session_state.file_data is not None:
     st.markdown("---")
-    st.markdown("### 2️⃣ DCM / Head Slider Information")
+    st.markdown("### 2️⃣ HSA Slider Information")
 
     slider_code = read_head_slider_code(st.session_state.file_data)
 
     if slider_code:
         family_char, family_name, hsa_char, hsa_type = parse_slider_info(slider_code)
         head_family = get_head_family(hsa_char)
-        dcm = parse_dcm_details(slider_code)
         
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.metric("DCM Code", slider_code)
+            st.metric("DCM Code", slider_code, help="Full drive configuration code")
         
         with col2:
-            if family_char:
-                st.metric("Drive Family", f"|{family_char}|", help=family_name)
+            if hsa_char:
+                st.metric("HSA Slider Version", f"Type {hsa_char}", 
+                         help="4th character (excluding pipes) - MUST match for donor compatibility")
             else:
-                st.metric("Drive Family", "Unknown")
+                st.metric("HSA Slider Version", "Unknown")
         
         with col3:
-            if hsa_char:
-                st.metric("HSA (Slider Type)", f"Type {hsa_char}", 
-                         help="4th character (HSA) - must match for R/W compatibility")
-            else:
-                st.metric("HSA (Slider Type)", "Unknown")
-        
-        with col4:
             if head_family:
                 emoji_map = {'Pebble Beach': '🏖️', 'Spyglass': '🔭', 'Palmer': '🌴'}
                 st.metric("Head Family", 
                          f"{emoji_map.get(head_family, '📌')} {head_family}",
-                         help="Donor heads must match this family")
+                         help=hsa_type or "Donor heads must match this family")
             elif hsa_type:
-                st.metric("Preamp", hsa_type)
+                st.metric("Head Family", hsa_type)
             else:
-                st.metric("Preamp", "Not identified")
+                st.metric("Head Family", "Unknown")
         
-        st.info("⚠️ **HSA Compatibility**: For optimal read/write compatibility, donor heads must have the **same HSA type** (4th character must match).")
+        st.info(f"⚠️ **Critical**: Donor drives must have **HSA Type {hsa_char}** for optimal compatibility (4th character excluding pipes).")
         
-        # Detailed DCM breakdown
-        with st.expander("📋 Detailed DCM Structure Analysis"):
+        # Simplified details
+        with st.expander("ℹ️ HSA Slider Details"):
             clean_code = slider_code.replace('|', '').replace(' ', '')
             
-            st.markdown("### DCM (Drive Configuration Management) Breakdown")
-            st.markdown("""
-The DCM code encodes physical drive components where each position identifies a specific part.
-            """)
-            
-            dcm_table = f"""
-| Position | Character | Component | Value | Priority |
-|:---------|:---------:|:----------|:------|:---------|
-| 1 | **{dcm['family'] or '?'}** | Drive Family | &#124;{dcm['family'] or '?'}&#124; ({family_name}) | ℹ️ Info |
-| 2 | **{dcm['spindle_motor'] or '?'}** | Spindle Motor | {dcm['spindle_motor'] or '?'} | 🟡 Low |
-| 3 | **{dcm['base'] or '?'}** | Base | {dcm['base'] or '?'} | 🟡 Low |
-| 4 | **{dcm['hsa'] or '?'}** | **HSA (Slider)** | **{hsa_type or 'Unknown'}** | 🔴 **CRITICAL** |
-| 5 | **{dcm['latch'] or '?'}** | Latch | {dcm['latch'] or '?'} | 🟡 Low |
-| 6 | **{dcm['preamp'] or '?'}** | Preamp | {dcm['preamp'] or '?'} | 🟠 High |
-| 7 | **{dcm['media'] or '?'}** | Media Type | {dcm['media'] or '?'} | 🟠 High |
-| 8 | **{dcm['bottom_vcm'] or '?'}** | Bottom VCM | {dcm['bottom_vcm'] or '?'} | 🟠 High |
-| 9 | **{dcm['aca'] or '?'}** | ACA | {dcm['aca'] or '?'} | 🟠 High |
-| 10 | **{dcm['top_vcm'] or '?'}** | Top VCM | {dcm['top_vcm'] or '?'} | 🟢 Medium |
-"""
-
-            st.markdown(dcm_table)
-            
-            st.info("""
-**💡 For Donor Compatibility:**
-- **🔴 CRITICAL**: Position 4 (HSA/Slider Type) must **exactly match**
-- **🟠 HIGH**: Positions 6-7, 8-9 should match for best results
-- **🟡 LOW**: Positions 2-3, 5 can vary if HSA matches
-- **🟢 MEDIUM**: Position 10 less critical
-""")
-            
             st.code(f"""
-Full DCM Code: {slider_code}
-Clean Code:    {clean_code}
+Full DCM Code:       {slider_code}
+Clean Code:          {clean_code}
+                     
+HSA Slider Version:  {hsa_char} ← Position 4 (excluding pipes) - MUST MATCH
+Head Family:         {head_family or 'Unknown'}
+Preamp Type:         {hsa_type or 'Unknown'}
 
-Drive Family:    |{family_char}| = {family_name}
-HSA Type:        {hsa_char} (Position 4 when excluding pipes) ← MUST MATCH
-Head Family:     {head_family if head_family else 'Unknown'}
-
-Component Breakdown:
+Known HSA Slider Families:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Spindle Motor:   {dcm['spindle_motor']}
-Base:            {dcm['base']}
-Latch:           {dcm['latch']}
-Preamp:          {dcm['preamp']}
-Media Type:      {dcm['media']}
-HSA (Slider):    {dcm['hsa']} ← {hsa_type}
-Bottom VCM:      {dcm['bottom_vcm']}
-ACA:             {dcm['aca']}
-Top VCM:         {dcm['top_vcm']}
+🏖️  Pebble Beach → HSA Type 2 or 5 (M16M.1 / M16M.2)
+🔭 Spyglass      → HSA Type 3 (M41.3A1 & 314)
+🌴 Palmer        → HSA Type 6 or 7 (M43.3B2)
 
-Code Location: Offset 0x26 in Module 0A
-Full ROM Address: 0x0007C020
+Examples:
+  |W|2J52H3F → HSA Type 5 (Pebble Beach)
+  |W|2J3CHMC → HSA Type 3 (Spyglass)
+  |W|2J6DH2C → HSA Type 6 (Palmer)
+  |W|2ZECH2F → HSA Type E (Unknown family)
 
-Known HSA/Slider Families:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🏖️  Pebble Beach (M16M.1 / M16M.2)
-  2, 5 → Examples: |W|2J52H3F, |W|MJ62EMJ
-
-🔭 Spyglass (M41.3A1 & 314)
-  3 → Examples: |W|2J3CHMC, |W|MJ6DHMC
-
-🌴 Palmer (M43.3B2)
-  6, 7 → Examples: |W|2J6DH2C, |W|2J6CH27
-
-Other HSA Types:
-  P → EC0C_R60
-  E, C, H, R, N, X, Y, K, D, M → Various HSA types
+Location: Offset 0x26 in Module 0A
             """)
         
-        # Hex dump
-        slider_bytes = st.session_state.file_data[0x26:0x26+10]
-        hex_str = ' '.join([f'{b:02X}' for b in slider_bytes])
-        ascii_str = ''.join([chr(b) if 32 <= b < 127 else '.' for b in slider_bytes])
-        st.code(f"Offset 0x26 (hex):\n{hex_str}\n\nASCII:\n{ascii_str}")
-        
-        # Compatibility checker
+        # Simple compatibility checker
         with st.expander("🔍 Donor Compatibility Checker"):
-            st.markdown("Enter a donor drive's DCM code to check compatibility:")
+            st.markdown("Enter donor drive's DCM code to check HSA compatibility:")
             donor_code = st.text_input("Donor DCM Code", placeholder="|W|2ZECH2F")
             
             if donor_code:
-                _, _, donor_hsa, _ = parse_slider_info(donor_code)
+                _, _, donor_hsa, donor_hsa_type = parse_slider_info(donor_code)
                 donor_family = get_head_family(donor_hsa)
-                donor_dcm = parse_dcm_details(donor_code)
                 
                 if donor_hsa and hsa_char:
-                    hsa_match = donor_hsa == hsa_char
-                    family_match = head_family and donor_family and head_family == donor_family
-                    
-                    st.markdown("### Component-by-Component Comparison")
-                    
-                    comp_table = "| Component | Original | Donor | Match | Priority |\n"
-                    comp_table += "|:----------|:--------:|:-----:|:-----:|:--------:|\n"
-                    
-                    components = [
-                        ('Spindle Motor', 'spindle_motor', '🟡 Low'),
-                        ('Base', 'base', '🟡 Low'),
-                        ('Latch', 'latch', '🟡 Low'),
-                        ('Preamp', 'preamp', '🟠 High'),
-                        ('Media Type', 'media', '🟠 High'),
-                        ('**HSA (Slider)**', 'hsa', '🔴 **CRITICAL**'),
-                        ('Bottom VCM', 'bottom_vcm', '🟠 High'),
-                        ('ACA', 'aca', '🟠 High'),
-                        ('Top VCM', 'top_vcm', '🟢 Medium'),
-                    ]
-                    
-                    for comp_name, key, priority in components:
-                        orig_val = dcm.get(key, '?')
-                        donor_val = donor_dcm.get(key, '?')
-                        match = '✅' if orig_val == donor_val else '❌'
-                        comp_table += f"| {comp_name} | **{orig_val}** | **{donor_val}** | {match} | {priority} |\n"
-                    
-                    st.markdown(comp_table)
-                    
-                    if hsa_match:
-                        st.success(f"✅ **HSA MATCH** - Type {hsa_char}")
-                        if family_match:
-                            st.success(f"✅ **Same Head Family**: {head_family}")
-                        
-                        matches = sum([
-                            dcm.get('preamp') == donor_dcm.get('preamp'),
-                            dcm.get('media') == donor_dcm.get('media'),
-                            dcm.get('bottom_vcm') == donor_dcm.get('bottom_vcm'),
-                            dcm.get('aca') == donor_dcm.get('aca'),
-                        ])
-                        
-                        if matches >= 3:
-                            st.success(f"🌟 **EXCELLENT MATCH** - {matches}/4 high-priority components match")
-                        elif matches >= 2:
-                            st.info(f"👍 **GOOD MATCH** - {matches}/4 high-priority components match")
-                        else:
-                            st.warning(f"⚠️ **ACCEPTABLE** - Only {matches}/4 high-priority components match. May work but not ideal.")
+                    if donor_hsa == hsa_char:
+                        st.success(f"✅ **PERFECT MATCH** - Both use HSA Type {hsa_char}")
+                        if head_family and donor_family:
+                            st.success(f"✅ Same family: {head_family}")
                     else:
-                        st.error(f"❌ **INCOMPATIBLE** - HSA types don't match!")
-                        st.error(f"Original: Type {hsa_char} ({head_family or 'Unknown'}) | Donor: Type {donor_hsa} ({donor_family or 'Unknown'})")
-                        st.warning("⚠️ Using mismatched HSA types will likely cause R/W failures!")
+                        st.error(f"❌ **INCOMPATIBLE**")
+                        st.error(f"Original: HSA Type {hsa_char} ({head_family or 'Unknown'}) vs Donor: HSA Type {donor_hsa} ({donor_family or 'Unknown'})")
+                        st.warning("⚠️ Mismatched HSA types will cause R/W failures!")
                 else:
                     st.warning("Could not parse HSA type from one or both codes")
     else:
-        st.warning("⚠️ Could not read DCM/slider code from Module 0A")
+        st.warning("⚠️ Could not read HSA slider code from Module 0A")
+
 
 # --------------------------------------------------------------------
 # 3. DRIVE TYPE SELECTION
